@@ -1,0 +1,52 @@
+# File di compilazione e oggetti
+*.o
+*.ko
+*.obj
+*.elf
+
+# Header precompilati
+*.gch
+*.pch
+
+# Librerie statiche e dinamiche
+*.lib
+*.a
+*.la
+*.lo
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# File eseguibili (Output della compilazione)
+*.exe
+*.out
+*.app
+*.hex
+
+# File e cartelle di build (CMake, Make, Makefiles generati)
+[Bb]in/
+[Bb]uild/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile.cmake
+compile_commands.json
+
+# File di Debug
+*.dSYM/
+*.su
+*.idb
+*.pdb
+*.dwo
+
+# Dipendenze ed elaborazioni (.d file generati dal compilatore)
+*.d
+
+# File di sistema e degli editor/IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
