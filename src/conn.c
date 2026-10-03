@@ -28,6 +28,7 @@
 #include "http_request.h"
 #include "fsmap.h"
 #include "http_response.h"
+#include "dirlist.h"
 #include "log.h"
 
 #define REQUEST_BUFFER_SIZE 8192
@@ -64,7 +65,7 @@ static void extract_request_line(const char *buf, size_t total, char *out, size_
 }
 
 void handle_connection(int client_fd, const struct sockaddr_in *client_addr,
-                        const char *root_dir, int verbose)
+                        const char *root_dir, int verbose, int enable_listing)
 {
     char buf[REQUEST_BUFFER_SIZE];
     size_t total = 0;
@@ -184,7 +185,7 @@ void handle_connection(int client_fd, const struct sockaddr_in *client_addr,
                 }
             }
 
-            fsmap_resolve(root_dir, req.path, &lookup);
+            fsmap_resolve(root_dir, req.path, enable_listing, &lookup);
 
             switch (lookup.result) {
             case FSMAP_OK: {
@@ -233,11 +234,34 @@ void handle_connection(int client_fd, const struct sockaddr_in *client_addr,
                     printf("  Risposta : 400 Bad Request (percent-encoding malformato)\n\n");
                 }
                 break;
+            case FSMAP_DIR_LISTING: {
+                long sent = dirlist_send(client_fd, req.method, lookup.resolved_path, req.path);
+
+                if (sent >= 0) {
+                    status = 200;
+                    bytes = sent;
+                    if (verbose) {
+                        printf("  Risposta : 200 OK (listing directory) -> %s (%ld byte)\n\n",
+                               lookup.resolved_path, sent);
+                    }
+                } else {
+                    /* Race TOCTOU: la directory era valida in fsmap.c
+                       ma non più leggibile a questo punto. */
+                    status = 500;
+                    bytes = http_send_error(client_fd, req.method, 500,
+                                             "Internal Server Error", NULL);
+                    if (verbose) {
+                        printf("  Risposta : 500 Internal Server Error (lettura directory fallita: %s)\n\n",
+                               lookup.resolved_path);
+                    }
+                }
+                break;
+            }
             case FSMAP_DIR_NO_INDEX:
                 status = 403;
                 bytes = http_send_error(client_fd, req.method, 403, "Forbidden", NULL);
                 if (verbose) {
-                    printf("  Risposta : 403 Forbidden (directory senza index.html)\n\n");
+                    printf("  Risposta : 403 Forbidden (directory senza index.html, listing disattivo)\n\n");
                 }
                 break;
             case FSMAP_FORBIDDEN:

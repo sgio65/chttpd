@@ -198,7 +198,7 @@ static int path_is_within_root(const char *root_canon, const char *candidate)
 }
 
 void fsmap_resolve(const char *root_dir, const char *url_path,
-                    struct fsmap_lookup *out)
+                    int enable_listing, struct fsmap_lookup *out)
 {
     char decoded[PATH_MAX];
     char rel_path[PATH_MAX];
@@ -264,6 +264,30 @@ void fsmap_resolve(const char *root_dir, const char *url_path,
             if (stat(index_path, &idx_st) == 0 && S_ISREG(idx_st.st_mode)) {
                 strncpy(full_path, index_path, sizeof(full_path) - 1);
                 full_path[sizeof(full_path) - 1] = '\0';
+            } else if (enable_listing) {
+                /*
+                 * v1.1 (-l/--list-dir): nessun index.html, ma il
+                 * listing è abilitato. A differenza di un file
+                 * regolare, una directory richiede anche il permesso
+                 * di esecuzione (X_OK) per poterne elencare il
+                 * contenuto (semantica POSIX standard), non solo
+                 * quello di lettura: per questo il controllo non
+                 * viene delegato al codice comune sottostante (pensato
+                 * per i file) ma eseguito qui esplicitamente, con un
+                 * ritorno anticipato.
+                 */
+                if (access(full_path, R_OK | X_OK) != 0) {
+                    out->result = FSMAP_FORBIDDEN;
+                    return;
+                }
+                if (!path_is_within_root(root_dir, full_path)) {
+                    out->result = FSMAP_FORBIDDEN;
+                    return;
+                }
+                strncpy(out->resolved_path, full_path, sizeof(out->resolved_path) - 1);
+                out->resolved_path[sizeof(out->resolved_path) - 1] = '\0';
+                out->result = FSMAP_DIR_LISTING;
+                return;
             } else {
                 out->result = FSMAP_DIR_NO_INDEX;
                 return;

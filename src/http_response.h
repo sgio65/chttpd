@@ -53,4 +53,22 @@ long http_send_file(int fd, enum http_method method, const char *resolved_path);
 long http_send_error(int fd, enum http_method method, int status_code,
                       const char *reason, const char *extra);
 
+/*
+ * http_send_html
+ *
+ * Invia una risposta 200 OK con 'html' (buffer già pronto in memoria,
+ * di 'html_len' byte, tipicamente costruito da un altro modulo come
+ * dirlist.c) come corpo, con "Content-Type: text/html; charset=utf-8"
+ * e Content-Length esatto. A differenza di http_send_file(), il
+ * contenuto non viene letto da un file ma fornito direttamente dal
+ * chiamante (v1.1: directory listing generato dinamicamente). Se
+ * 'method' è HTTP_METHOD_HEAD, vengono inviati solo gli header.
+ *
+ * Ritorna il numero di byte del corpo effettivamente inviati (0 per
+ * HEAD, o se il client si disconnette prima/durante l'invio), oppure
+ * -1 se la costruzione della risposta fallisce (header troppo grande:
+ * non dovrebbe mai verificarsi in pratica).
+ */
+long http_send_html(int fd, enum http_method method, const char *html, size_t html_len);
+
 #endif /* CHTTPD_HTTP_RESPONSE_H */

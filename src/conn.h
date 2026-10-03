@@ -29,12 +29,14 @@
  * 3-5, ora disponibile tramite il flag -v/--verbose-log. Chiude
  * sempre il socket client prima di ritornare.
  *
- * client_fd   : file descriptor del socket client accettato
- * client_addr : indirizzo del client (per log e diagnostica)
- * root_dir    : directory radice servita, già canonicalizzata (realpath)
- * verbose     : se non-zero, stampa anche il dump diagnostico dettagliato
+ * client_fd      : file descriptor del socket client accettato
+ * client_addr    : indirizzo del client (per log e diagnostica)
+ * root_dir       : directory radice servita, già canonicalizzata (realpath)
+ * verbose        : se non-zero, stampa anche il dump diagnostico dettagliato
+ * enable_listing : se non-zero (flag -l/--list-dir, v1.1), le directory
+ *                  senza index.html producono un listing HTML invece di 403
  */
 void handle_connection(int client_fd, const struct sockaddr_in *client_addr,
-                        const char *root_dir, int verbose);
+                        const char *root_dir, int verbose, int enable_listing);
 
 #endif /* CHTTPD_CONN_H */

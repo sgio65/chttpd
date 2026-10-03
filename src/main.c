@@ -79,6 +79,7 @@ struct config {
     char bind_addr[BIND_ADDR_LEN];
     char directory[DIR_PATH_LEN];
     int verbose;
+    int list_dir;
 };
 
 /* Flag impostato dal signal handler; sig_atomic_t per accesso sicuro. */
@@ -164,6 +165,7 @@ struct conn_task {
     struct sockaddr_in client_addr;
     const char *root_dir;
     int verbose;
+    int list_dir;
 };
 
 /*
@@ -189,7 +191,7 @@ static void *conn_thread_main(void *arg)
     pthread_sigmask(SIG_BLOCK, &block_set, NULL);
 
     handle_connection(task->client_fd, &task->client_addr,
-                       task->root_dir, task->verbose);
+                       task->root_dir, task->verbose, task->list_dir);
 
     free(task);
     active_connections_dec();
@@ -206,7 +208,7 @@ static void print_usage(const char *prog)
 {
     fprintf(stderr,
         "Uso: %s [porta] [-b|--bind INDIRIZZO] [-d|--directory DIR] "
-        "[-v|--verbose-log] [-h|--help] [--version]\n"
+        "[-v|--verbose-log] [-l|--list-dir] [-h|--help] [--version]\n"
         "\n"
         "  porta                  Porta TCP di ascolto (default: %d)\n"
         "  -b, --bind INDIRIZZO   Indirizzo IP locale su cui fare bind (default: %s)\n"
@@ -216,6 +218,9 @@ static void print_usage(const char *prog)
         "  -v, --verbose-log      Stampa anche un dump diagnostico dettagliato\n"
         "                         per ogni richiesta (metodo, path, header, esito),\n"
         "                         in aggiunta al log standard\n"
+        "  -l, --list-dir         Mostra il listing HTML di una directory priva\n"
+        "                         di index.html, invece di rispondere 403\n"
+        "                         (default: disattivo)\n"
         "  -h, --help             Mostra questo messaggio ed esce\n"
         "  --version              Mostra la versione ed esce\n");
 }
@@ -254,6 +259,7 @@ static void parse_args(int argc, char **argv, struct config *cfg)
     strncpy(cfg->directory, DEFAULT_DIR, DIR_PATH_LEN - 1);
     cfg->directory[DIR_PATH_LEN - 1] = '\0';
     cfg->verbose = 0;
+    cfg->list_dir = 0;
 
     for (i = 1; i < argc; i++) {
         const char *arg = argv[i];
@@ -266,6 +272,8 @@ static void parse_args(int argc, char **argv, struct config *cfg)
             exit(0);
         } else if (strcmp(arg, "-v") == 0 || strcmp(arg, "--verbose-log") == 0) {
             cfg->verbose = 1;
+        } else if (strcmp(arg, "-l") == 0 || strcmp(arg, "--list-dir") == 0) {
+            cfg->list_dir = 1;
         } else if (strcmp(arg, "-b") == 0 || strcmp(arg, "--bind") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "chttpd: manca il valore per %s\n", arg);
@@ -376,10 +384,11 @@ int main(int argc, char **argv)
     }
 
     printf("Serving HTTP on %s port %d (http://%s:%d/) directory=%s "
-           "verbose-log=%s concurrency=pthread(max=%d) "
+           "verbose-log=%s list-dir=%s concurrency=pthread(max=%d) "
            "timeout=%ds/%ds ...\n",
            cfg.bind_addr, cfg.port, cfg.bind_addr, cfg.port, cfg.directory,
-           cfg.verbose ? "on" : "off", MAX_CONCURRENT_CONNECTIONS,
+           cfg.verbose ? "on" : "off", cfg.list_dir ? "on" : "off",
+           MAX_CONCURRENT_CONNECTIONS,
            REQUEST_READ_TIMEOUT_SECONDS, RESPONSE_WRITE_TIMEOUT_SECONDS);
     fflush(stdout);
 
@@ -502,6 +511,7 @@ int main(int argc, char **argv)
         task->client_addr = client_addr;
         task->root_dir = cfg.directory;
         task->verbose = cfg.verbose;
+        task->list_dir = cfg.list_dir;
 
         active_connections_inc();
 

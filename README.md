@@ -1,4 +1,4 @@
-# chttpd 1.0
+# chttpd 1.1
 
 Un semplice server HTTP per file statici, scritto in **ANSI C** con sole
 chiamate di libreria standard e POSIX (inclusi POSIX Threads).
@@ -14,6 +14,10 @@ delle singole fasi e la checklist di collaudo, vedere
   `Content-Type` da una tabella MIME minima
 - Directory index (`index.html`), redirect 301 sulle directory senza
   `/` finale
+- **Directory listing HTML opzionale** (`-l`/`--list-dir`, v1.1) per le
+  directory senza `index.html`, con icone, ordinamento
+  directory-poi-file, ed escaping/encoding sicuro dei nomi (vedi
+  `AGENTS.md` §15)
 - Protezione da path traversal (lessicale, con percent-encoding, e
   tramite symlink)
 - Concorrenza tramite thread POSIX (un thread per connessione)
@@ -39,7 +43,7 @@ necessari): `pacman -S gcc make`, poi `make` come sopra. Vedi
 ## Uso
 
 ```sh
-./chttpd [porta] [-b INDIRIZZO] [-d DIRECTORY] [-v] [--version] [-h]
+./chttpd [porta] [-b INDIRIZZO] [-d DIRECTORY] [-v] [-l] [--version] [-h]
 ```
 
 Esempi:
@@ -53,6 +57,9 @@ Esempi:
 
 # Serve una directory specifica, ascoltando solo su localhost
 ./chttpd 8000 -b 127.0.0.1 -d /var/www/html
+
+# Con listing HTML delle directory senza index.html
+./chttpd -l
 
 # Con log diagnostico dettagliato per ogni richiesta
 ./chttpd -v
@@ -68,5 +75,7 @@ Elenco completo delle opzioni: `./chttpd --help`.
 Sviluppo completato per fasi incrementali, ciascuna approvata
 singolarmente e documentata in `AGENTS.md` (specifiche, note
 implementative, verifiche effettuate). Tutte le fasi (0-8) sono
-completate: vedi la checklist di collaudo in `AGENTS.md` §14.
+completate — rilascio **1.0** — con il directory listing aggiunto nella
+**1.1** (`AGENTS.md` §15). Vedi la checklist di collaudo in
+`AGENTS.md` §14.
 

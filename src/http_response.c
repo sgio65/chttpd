@@ -181,6 +181,41 @@ long http_send_file(int fd, enum http_method method, const char *resolved_path)
     return body_sent;
 }
 
+long http_send_html(int fd, enum http_method method, const char *html, size_t html_len)
+{
+    char header[256];
+    int header_len;
+    char date_buf[64];
+
+    format_http_date(date_buf, sizeof(date_buf));
+
+    header_len = snprintf(header, sizeof(header),
+        "HTTP/1.1 200 OK\r\n"
+        "Server: " SERVER_NAME "\r\n"
+        "Date: %s\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n"
+        "Content-Length: %lu\r\n"
+        "Connection: close\r\n"
+        "\r\n",
+        date_buf, (unsigned long) html_len);
+
+    if (header_len < 0 || (size_t) header_len >= sizeof(header)) {
+        return -1;
+    }
+
+    if (send_all(fd, header, (size_t) header_len) != 0) {
+        return 0; /* client disconnesso: nessun corpo inviato */
+    }
+
+    if (method != HTTP_METHOD_HEAD) {
+        if (send_all(fd, html, html_len) != 0) {
+            return 0; /* client disconnesso durante l'invio */
+        }
+        return (long) html_len;
+    }
+
+    return 0;
+}
 long http_send_error(int fd, enum http_method method, int status_code,
                       const char *reason, const char *extra)
 {

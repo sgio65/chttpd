@@ -8,6 +8,6 @@
  * (flag --version) e http_response.c (header "Server:"), per evitare
  * di dover mantenere due letterali allineati manualmente.
  */
-#define CHTTPD_VERSION "1.0"
+#define CHTTPD_VERSION "1.1"
 
 #endif /* CHTTPD_VERSION_H */

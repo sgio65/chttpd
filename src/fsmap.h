@@ -25,7 +25,9 @@ enum fsmap_result {
     FSMAP_NOT_FOUND,     /* risorsa inesistente */
     FSMAP_FORBIDDEN,     /* permessi insufficienti, path traversal o escape via symlink */
     FSMAP_BAD_REQUEST,   /* percent-encoding malformato nel path richiesto */
-    FSMAP_DIR_NO_INDEX   /* directory esistente senza index.html: listing non implementato -> 403 */
+    FSMAP_DIR_NO_INDEX,  /* directory senza index.html, listing disattivo (default) -> 403 */
+    FSMAP_DIR_LISTING    /* directory senza index.html, listing attivo (v1.1, -l/--list-dir):
+                             resolved_path valido, punta alla directory stessa */
 };
 
 struct fsmap_lookup {
@@ -37,13 +39,17 @@ struct fsmap_lookup {
 /*
  * fsmap_resolve
  *
- * root_dir : directory radice servita, GIA' canonicalizzata (percorso
- *            assoluto risolto tramite realpath da main.c all'avvio)
- * url_path : path grezzo (non decodificato) così come estratto dalla
- *            request-line (campo path di struct http_request)
- * out      : popolato con l'esito della risoluzione
+ * root_dir       : directory radice servita, GIA' canonicalizzata
+ *                  (percorso assoluto risolto tramite realpath da
+ *                  main.c all'avvio)
+ * url_path       : path grezzo (non decodificato) così come estratto
+ *                  dalla request-line (campo path di struct http_request)
+ * enable_listing : se non-zero (flag -l/--list-dir, v1.1), una
+ *                  directory senza index.html produce FSMAP_DIR_LISTING
+ *                  invece di FSMAP_DIR_NO_INDEX
+ * out            : popolato con l'esito della risoluzione
  */
 void fsmap_resolve(const char *root_dir, const char *url_path,
-                    struct fsmap_lookup *out);
+                    int enable_listing, struct fsmap_lookup *out);
 
 #endif /* CHTTPD_FSMAP_H */

@@ -6,8 +6,9 @@ qualunque agente (umano o automatico) che scriva codice per questo progetto.
 Ogni fase successiva deve essere conforme a quanto qui descritto, salvo
 modifiche esplicitamente approvate e verbalizzate in questo file.
 
-**Versione corrente: 1.0** (vedi §13 per lo stato di avanzamento delle fasi
-e §14 per la checklist di collaudo del rilascio).
+**Versione corrente: 1.1** (vedi §13 per lo stato di avanzamento delle fasi,
+§14 per la checklist di collaudo del rilascio 1.0, §15 per il directory
+listing introdotto nella 1.1).
 
 ## 1. Obiettivo del progetto
 
@@ -71,6 +72,7 @@ chttpd [porta] [-b INDIRIZZO | --bind INDIRIZZO] [-d DIR | --directory DIR] [-h 
 | `-b`, `--bind`         | No           | `0.0.0.0`   | Indirizzo IP locale su cui fare bind                       |
 | `-d`, `--directory`    | No           | `.` (cwd)   | Directory radice servita staticamente                      |
 | `-v`, `--verbose-log`  | No           | disattivo   | Stampa anche un dump diagnostico dettagliato per richiesta   |
+| `-l`, `--list-dir`     | No           | disattivo   | Mostra il listing HTML delle directory senza `index.html` (v1.1), invece di 403 |
 | `-h`, `--help`         | No           | —           | Stampa help e termina con exit code 0                       |
 | `--version`            | No           | —           | Stampa la versione (Fase 8) e termina con exit code 0         |
 
@@ -105,10 +107,10 @@ Versione non riconosciuta o mancante → `400 Bad Request`.
 
 | Codice | Significato          | Quando                                           |
 |--------|-----------------------|---------------------------------------------------|
-| 200    | OK                    | File trovato e leggibile                            |
+| 200    | OK                    | File trovato e leggibile, o listing di una directory (v1.1)  |
 | 301    | Moved Permanently     | Richiesta directory senza `/` finale                |
 | 400    | Bad Request           | Request-line malformata o versione non valida        |
-| 403    | Forbidden             | Permessi insufficienti o path traversal rilevato       |
+| 403    | Forbidden             | Permessi insufficienti, path traversal, oppure directory senza `index.html` con listing disattivo (default) |
 | 404    | Not Found             | Risorsa inesistente                                  |
 | 405    | Method Not Allowed    | Riservato per usi futuri (attualmente si usa 501)      |
 | 501    | Not Implemented       | Metodo non supportato                                |
@@ -160,14 +162,18 @@ irreversibili, la terminazione del processo con exit code diverso da 0.
 
 ## 7. Sicurezza filesystem (dettaglio in Fase 4)
 
-- Nessun path risolto può uscire dalla directory radice (`--directory`).
+- Nessun path risolto può uscire dalla directory radice (`--directory`),
+  verificato sia lessicalmente (normalizzazione di `.`/`..`) sia tramite
+  `realpath()` (protegge anche da escape realizzati con symlink).
 - Sequenze `..` nel path URL vengono normalizzate/rifiutate.
 - Il path URL viene decodificato da percent-encoding prima della
   risoluzione.
 - Se il path risolto è una directory:
-  - se contiene `index.html`, questo viene servito;
-  - altrimenti (fase opzionale) viene generato un listing HTML della
-    directory, oppure `403 Forbidden` se il listing è disattivato.
+  - se contiene `index.html`, questo viene servito (priorità sempre
+    massima, anche con `-l`/`--list-dir` attivo);
+  - altrimenti, se il flag `-l`/`--list-dir` è attivo (v1.1, disattivo
+    di default), viene generato un listing HTML della directory (vedi
+    §15); altrimenti `403 Forbidden`.
 
 ## 8. Tabella MIME minima (dettaglio in Fase 5)
 
@@ -273,6 +279,7 @@ chttpd/
 │   ├── http_response.c/.h  (costruzione risposta — Fase 5, completato)
 │   ├── fsmap.c/.h     (risoluzione path, sicurezza, MIME — Fase 4, completato)
 │   ├── log.c/.h       (formattazione log — Fase 6, completato)
+│   ├── dirlist.c/.h   (listing HTML delle directory — v1.1)
 │   └── version.h      (stringa di versione condivisa — Fase 8)
 └── Makefile
 ```
@@ -416,6 +423,52 @@ tutti eseguiti in concorrenza con i valori di produzione (non le build di
 prova): esiti tutti coerenti con le fasi precedenti; (4) compilazione
 pulita da zero del pacchetto completo di consegna, senza warning.
 
+**Nota implementativa (v1.1):** aggiunto il directory listing opzionale
+(vedi §15 per il design completo). Nuovo modulo `dirlist.c/.h`. Modifiche
+ai file esistenti: `fsmap.h/.c` (nuovo esito `FSMAP_DIR_LISTING`, nuovo
+parametro `enable_listing` in `fsmap_resolve()`; una directory
+elencabile richiede sia `R_OK` sia `X_OK`, controllati esplicitamente
+qui perché il codice comune condiviso con i file regolari verifica solo
+`R_OK`), `conn.h/.c` (nuovo parametro `enable_listing` in
+`handle_connection()`, gestione del nuovo esito), `http_response.h/.c`
+(nuova funzione `http_send_html()`, per inviare contenuto generato
+dinamicamente invece che letto da file — riusata da `dirlist.c`, che
+quindi non duplica la logica di invio header/corpo/gestione `HEAD` già
+presente in `http_response.c`), `main.c` (flag `-l`/`--list-dir`,
+propagato tramite `struct conn_task` come già avviene per `verbose`).
+Durante l'implementazione è emerso lo stesso problema di conformità
+`-ansi -pedantic` già incontrato in Fase 6 (limite di 509 caratteri per
+singolo letterale stringa ISO C90), questa volta sul markup HTML/CSS
+della pagina: risolto con lo stesso approccio (più chiamate a
+`strbuf_append()` con letterali più corti, invece di un unico array
+`static const char[]` inizializzato per concatenazione).
+Verifiche eseguite: (1) regressione — senza `-l`, una directory priva di
+`index.html` restituisce ancora `403` esattamente come prima; con `-l`
+attivo, una directory CON `index.html` continua a servire quest'ultimo
+(priorità invariata, non genera un listing); (2) contenuto del listing
+generato — ordinamento (directory prima, poi file, alfabetico
+case-insensitive), formato data ISO 8601 in UTC, dimensioni leggibili,
+`Content-Length` coincidente con i byte realmente inviati; (3) sicurezza
+— nome di file contenente `& < > " '` correttamente HTML-escaped nel
+testo e percent-encoded nell'`href` (nessuna iniezione HTML/XSS
+riflessa), nome con spazi e nome Unicode (lettere accentate, simbolo
+`€`, ideogrammi, un'emoji) visualizzati e percent-encoded correttamente,
+con click-through verificato (GET sul link generato → 200, contenuto
+corretto); un symlink presente nella directory e puntante fuori dalla
+radice **compare nell'elenco** ma cliccandolo resta `403` (nessuna
+regressione sulla protezione anti-escape della Fase 4: il listing si
+limita a mostrare i nomi, la richiesta generata cliccando passa
+comunque per l'intera pipeline di sicurezza esistente); (4) `HEAD` su un
+listing — verificato con una richiesta grezza via `nc` che il socket si
+chiude subito dopo la riga vuota degli header, senza alcun byte di
+corpo, nonostante il `Content-Length` dichiarato; (5) directory vuota —
+pagina valida con solo l'intestazione e il collegamento alla directory
+superiore; (6) collegamento alla directory superiore mostrato in una
+sottodirectory, nascosto alla radice del sito servito (come da
+decisione concordata); (7) generazione del listing sotto concorrenza
+(5 richieste parallele) senza errori; (8) compilazione pulita da zero
+del pacchetto completo, senza warning.
+
 ## 12. Criteri di accettazione per ogni fase
 
 Una fase si considera completata quando:
@@ -441,8 +494,9 @@ Una fase si considera completata quando:
 | 7    | Concorrenza                              | ✅ Completata |
 | 8    | Robustezza e rifinitura                   | ✅ Completata |
 
-Tutte le fasi pianificate sono completate: il progetto è pronto per il
-rilascio **1.0** (vedi §14 per la checklist di collaudo).
+Tutte le fasi pianificate sono completate: il progetto è stato rilasciato
+come **1.0** (vedi §14 per la checklist di collaudo) ed esteso con il
+**directory listing** nella **1.1** (vedi §15).
 
 Questo file va aggiornato al termine di ogni fase approvata.
 
@@ -507,7 +561,7 @@ manualmente con `curl`/`nc`/browser per una verifica indipendente.
       ripristino automatico non appena si liberano slot
 - [x] `SIGINT`/`SIGTERM` con connessioni attive → il processo attende il
       drenaggio (entro `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`) prima di uscire
-- [x] Header `Server: chttpd/1.0` presente in tutte le risposte
+- [x] Header `Server: chttpd/1.1` presente in tutte le risposte
 
 **Portabilità**
 - [x] Linux (ambiente di sviluppo primario) — verificato
@@ -519,3 +573,82 @@ Tutte le voci sopra sono state eseguite e superate nel corso delle Fasi
 1-8 (vedi le note implementative di ciascuna fase per il dettaglio dei
 test effettuati); questa sezione le riassume come checklist di
 riferimento per eventuali collaudi futuri (es. dopo modifiche al codice).
+
+## 15. Directory listing (v1.1)
+
+Funzionalità aggiuntiva rispetto al piano originale delle Fasi 0-8,
+richiesta per allineare `chttpd` a una capacità di `http.server` non
+ancora coperta: la visualizzazione del contenuto di una directory priva
+di `index.html`, invece della sola alternativa `403 Forbidden`.
+
+**Attivazione:** flag `-l`/`--list-dir` (§3), **disattivo di default**
+per non cambiare il comportamento pregresso di chi non lo richiede
+esplicitamente. `index.html`, se presente, ha sempre la priorità: non
+viene mai generato un listing per una directory che lo contiene, anche
+con `-l` attivo.
+
+**Formato della pagina:** HTML con CSS incorporato (nessuna richiesta
+aggiuntiva al server per fogli di stile esterni), in stile "index of"
+con icone per tipo di voce (cartella, immagine, archivio, documento
+generico), basato su un mockup fornito dall'utente e riprodotto in
+`dirlist.c` tramite il modulo `http_response.c` (funzione
+`http_send_html()`, che imposta `Content-Type: text/html; charset=utf-8`
+e un `Content-Length` esatto). Colonne: Nome, Ultima Modifica (UTC, in
+formato ISO 8601 `AAAA-MM-GG HH:MM` — deliberatamente non nel fuso
+orario locale né in una lingua specifica, per evitare dipendenze dalla
+locale di sistema, coerentemente con il resto del progetto), Dimensione
+(formattata in modo leggibile: B/KB/MB/GB).
+
+**Ordinamento:** sotto-directory prima, poi file, entrambi i gruppi in
+ordine alfabetico case-insensitive (scelta del progetto, diversa
+dall'ordinamento puramente alfabetico misto di `http.server`).
+
+**Collegamento alla directory superiore (`..`):** mostrato sempre,
+tranne quando la directory corrente è la radice del sito servito (path
+richiesto `/`), per evitare un collegamento che non condurrebbe a nulla
+di utile.
+
+**Sicurezza:**
+- I nomi delle voci vengono **HTML-escaped** (`&`, `<`, `>`, `"`, `'`)
+  prima dell'inserimento nella pagina, per prevenire un'iniezione
+  HTML/XSS riflessa tramite un nome di file "malizioso" creato ad arte
+  sul filesystem servito.
+- I collegamenti (`href`) vengono **percent-encoded** byte per byte
+  (preservando solo lettere, cifre e `- _ . ~`), il che gestisce
+  correttamente anche nomi con spazi o caratteri non-ASCII: essendo
+  l'escaping a livello di byte, è automaticamente sicuro anche con nomi
+  UTF-8 multi-byte (i byte di continuazione UTF-8, nell'intervallo
+  0x80-0xBF, non collidono mai con i caratteri ASCII speciali gestiti
+  dall'escaping HTML).
+- Il listing mostra solo i **nomi** delle voci (letti direttamente dalla
+  directory tramite `opendir()`/`readdir()`): cliccare su una voce
+  genera comunque una normale richiesta HTTP che attraversa l'intera
+  pipeline di sicurezza già esistente (Fase 4). Un symlink presente
+  nella directory e puntante fuori dalla radice **compare nell'elenco**
+  (il listing non risolve i symlink per decidere cosa mostrare, si
+  limita a leggere la voce), ma cliccandolo si ottiene comunque `403`,
+  esattamente come senza il listing attivo: nessuna regressione sulla
+  protezione anti-escape.
+- Una directory elencabile richiede sia `R_OK` (lettura) sia `X_OK`
+  (attraversamento, semantica POSIX standard per le directory) — a
+  differenza dei file regolari, per cui è sufficiente `R_OK`.
+- Le voci il cui `stat()` fallisce (es. symlink rotti che puntano a un
+  target inesistente) sono **omesse silenziosamente** dal listing,
+  invece di interrompere la generazione della pagina o mostrare
+  informazioni incomplete/fuorvianti.
+
+**Limiti noti (non implementati, fuori dall'ambito della v1.1):**
+- Nessuna paginazione: una directory con un numero molto elevato di
+  voci produce una pagina HTML proporzionalmente grande (il buffer
+  interno cresce dinamicamente via `realloc()`, quindi non c'è un limite
+  fisso, ma per directory con centinaia di migliaia di voci le
+  prestazioni non sono state valutate).
+- Nessuna opzione di ordinamento alternativo (per data o dimensione,
+  come talvolta offerto da altri server) né di ricerca/filtro.
+- Il titolo della pagina (`<h1>`) mostra il path così come richiesto dal
+  client (`req.path`, non decodificato da percent-encoding): un URL con
+  sequenze `%XX` comparirà quindi codificato nel titolo, anche se la
+  richiesta è stata risolta correttamente. Scelta deliberata per
+  evitare di esporre un'ulteriore funzione di decodifica tra moduli;
+  non incide sulla funzionalità né sulla sicurezza, solo sulla resa
+  estetica in casi non comuni.
